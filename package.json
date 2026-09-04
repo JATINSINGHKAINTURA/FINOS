@@ -1,0 +1,9 @@
+{
+  "name": "finos",
+  "private": true,
+  "version": "0.2.0",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "build": "npm run build --prefix frontend"
+  }
+}

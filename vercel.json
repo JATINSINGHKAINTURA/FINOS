@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build --prefix frontend",
+  "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
   "env": { "FINOS_DB": "/tmp/finos.db" },
   "rewrites": [

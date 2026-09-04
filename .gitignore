@@ -8,3 +8,5 @@ finos.db
 .vercel/
 __pycache__/
 *.pyc
+
+.vercel
