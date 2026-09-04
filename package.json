@@ -4,6 +4,6 @@
   "version": "0.2.0",
   "engines": { "node": "22.x" },
   "scripts": {
-    "build": "npm run build --prefix frontend"
+    "build": "npm --prefix frontend install --no-audit --no-fund && npm run build --prefix frontend"
   }
 }
