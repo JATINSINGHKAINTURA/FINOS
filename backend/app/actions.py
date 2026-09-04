@@ -42,6 +42,9 @@ def propose(db, case: Case, decision) -> ActionItem:
 
 
 def approve(db, action: ActionItem, actor: str = "reviewer") -> dict:
+    if action.status == "executed":
+        return {"ok": False, "verdict": {"allowed": False, "requires_approval": True,
+                "reasons": ["Already executed — executed actions are immutable."]}}
     case = db.query(Case).filter_by(id=action.case_id).first()
     verdict = pol.check(db, action.kind, pol.context_for_case(db, case))
     if not verdict["allowed"]:
@@ -70,13 +73,19 @@ def execute(db, action: ActionItem, actor: str = "reviewer") -> dict:
         result = {"outcome": "Flagged for finance review. No money moved."}
     elif action.kind == "refund":
         p = action.params
-        r = rz.create_refund(p["payment_id"], p["amount"],
-                             notes={"case": str(case.case_no), "reason": "duplicate_payment"})
-        db.add(Refund(refund_id=r["id"], payment_id=p["payment_id"], amount=p["amount"],
-                      status=r.get("status", "processed"), reason="duplicate_payment",
-                      dry_run=1 if r.get("dry_run") else 0))
-        result = {"outcome": f"Refund {r['id']} {r.get('status')}.", "refund": r,
-                  "dry_run": bool(r.get("dry_run"))}
+        stored = db.query(Refund).filter_by(payment_id=p["payment_id"], amount=p["amount"]).first()
+        if stored:
+            result = {"outcome": f"Refund {stored.refund_id} {stored.status} (already recorded).",
+                      "refund_id": stored.refund_id, "replayed_from_store": True,
+                      "dry_run": bool(stored.dry_run)}
+        else:
+            r = rz.create_refund(p["payment_id"], p["amount"],
+                                 notes={"case": str(case.case_no), "reason": "duplicate_payment"})
+            db.add(Refund(refund_id=r["id"], payment_id=p["payment_id"], amount=p["amount"],
+                          status=r.get("status", "processed"), reason="duplicate_payment",
+                          dry_run=1 if r.get("dry_run") else 0))
+            result = {"outcome": f"Refund {r['id']} {r.get('status')}.", "refund": r,
+                      "dry_run": bool(r.get("dry_run"))}
     else:
         return {"ok": False, "error": f"Unknown action kind {action.kind}"}
     action.result = result

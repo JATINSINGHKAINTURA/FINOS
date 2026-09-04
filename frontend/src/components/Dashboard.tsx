@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { health, listCases, type CaseSummary } from "../api";
-import { rs } from "../api";
+import { listCases, type CaseSummary } from "../api";
 
 const KIND_LABEL: Record<string, string> = {
   ambiguous: "Ambiguous payment",
@@ -36,19 +35,3 @@ export default function Dashboard({ onOpen, refreshKey }: { onOpen: (no: number)
   );
 }
 
-export function PipelineStrip() {
-  const [dry, setDry] = useState<boolean | null>(null);
-  useEffect(() => { health().then((h) => setDry(h.dry_run)).catch(() => {}); }, []);
-  const steps = ["Facts", "Rules / State", "AI Reasoning", "Policy Gate", "Approved Action"];
-  void rs;
-  return (
-    <div className="pipeline fade-in" title="FINOS architecture: AI explains, never invents financial truth.">
-      {steps.map((s, i) => (
-        <span key={s} className="pipe-step">
-          {i > 0 && <span className="pipe-arrow">→</span>}{s}
-        </span>
-      ))}
-      {dry !== null && <span className={`pill ${dry ? "dry" : "live"}`}>{dry ? "DRY-RUN" : "LIVE"}</span>}
-    </div>
-  );
-}

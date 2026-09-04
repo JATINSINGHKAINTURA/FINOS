@@ -1,15 +1,19 @@
-"""FINOS API: webhook ingest -> state -> investigate -> approve -> execute -> audit."""
+"""FINOS API: webhook ingest -> state -> investigate -> approve -> execute -> audit,
+plus assistant chat + guidebots. Same response shapes as before; errors are now
+consistent {ok:false, error, code}."""
 import json
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai as investigator
+from . import chat as assistant
 from . import policy as pol
 from . import razorpay as rz
 from . import rules
@@ -17,8 +21,14 @@ from . import state as st
 from .actions import approve as approve_action
 from .actions import execute as execute_action
 from .actions import log_audit, propose
+from .auth import require_key
 from .db import Base, SessionLocal, engine
+from .errors import AppError, app_error_handler, unhandled_handler
+from .guidebots import engine as guides
+from .guidebots.registry import get_config, list_configs
+from .log import RequestLogMiddleware, event
 from .models import ActionItem, AuditLog, Case, Decision, Event, Order, Payment, Refund, Settlement
+from .ratelimit import RateLimitMiddleware
 from .seed import seed
 
 
@@ -30,11 +40,25 @@ async def lifespan(app: FastAPI):
         seed(db)
     finally:
         db.close()
+    event("startup", dry_run=rz.DRY_RUN)
     yield
 
 
-app = FastAPI(title="FINOS", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="FINOS", version="0.2.0", lifespan=lifespan)
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(Exception, unhandled_handler)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(_: Request, exc: RequestValidationError):
+    return JSONResponse({"ok": False, "error": "Invalid request.", "code": "validation"},
+                        status_code=422)
+
+
+app.add_middleware(RequestLogMiddleware)
+app.add_middleware(RateLimitMiddleware)
+origins = [o.strip() for o in os.environ.get("FINOS_CORS_ORIGINS", "*").split(",")]
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
 
 
 def _iso(dt):
@@ -61,7 +85,25 @@ def ser_action(a: ActionItem | None) -> dict | None:
 
 
 class ApproveBody(BaseModel):
-    actor: str = "judge"
+    actor: str = Field(default="judge", max_length=64)
+
+
+class ChatBody(BaseModel):
+    session_id: str | None = Field(default=None, max_length=64)
+    message: str = Field(max_length=2000)
+
+
+class GuideChatBody(BaseModel):
+    session_id: str | None = Field(default=None, max_length=64)
+    message: str = Field(max_length=2000)
+    actor: str = Field(default="judge", max_length=64)
+
+
+def need_case(db, no: int) -> Case:
+    c = db.query(Case).filter_by(case_no=no).first()
+    if not c:
+        raise AppError("Case not found.", code="not_found", status=404)
+    return c
 
 
 @app.get("/health")
@@ -75,7 +117,9 @@ async def razorpay_webhook(request: Request):
     try:
         payload = json.loads(body or b"{}")
     except Exception:
-        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+        raise AppError("Invalid JSON.", code="validation", status=400)
+    if not isinstance(payload, dict):
+        raise AppError("Invalid JSON.", code="validation", status=400)
     sig = request.headers.get("x-razorpay-signature", "")
     ok = rz.verify_signature(body, sig)
     db = SessionLocal()
@@ -112,6 +156,7 @@ async def razorpay_webhook(request: Request):
                           status=str(ref.get("status", "processed")), dry_run=0))
         db.commit()
         opened = rules.detect(db)
+        event("webhook", type=payload.get("event"), signature_ok=ok, cases_opened=opened)
         return {"ok": True, "signature_ok": ok, "cases_opened": opened}
     finally:
         db.close()
@@ -130,9 +175,7 @@ def list_cases():
 def case_detail(no: int):
     db = SessionLocal()
     try:
-        c = db.query(Case).filter_by(case_no=no).first()
-        if not c:
-            return JSONResponse({"error": "Case not found"}, status_code=404)
+        c = need_case(db, no)
         out = {"case": ser_case(c)}
         if c.order_id:
             out["reconstruction"] = st.reconstruct(db, c.order_id)
@@ -156,12 +199,11 @@ def case_detail(no: int):
 
 
 @app.post("/api/cases/{no}/investigate")
-def investigate_case(no: int):
+def investigate_case(no: int, request: Request):
+    require_key(request)
     db = SessionLocal()
     try:
-        c = db.query(Case).filter_by(case_no=no).first()
-        if not c:
-            return JSONResponse({"error": "Case not found"}, status_code=404)
+        c = need_case(db, no)
         d = investigator.investigate(db, c)
         action = propose(db, c, d)
         verdict = pol.check(db, action.kind, pol.context_for_case(db, c))
@@ -173,33 +215,31 @@ def investigate_case(no: int):
 
 
 @app.post("/api/cases/{no}/approve")
-def approve_case(no: int, body: ApproveBody):
+def approve_case(no: int, body: ApproveBody, request: Request):
+    require_key(request)
     db = SessionLocal()
     try:
-        c = db.query(Case).filter_by(case_no=no).first()
-        if not c:
-            return JSONResponse({"error": "Case not found"}, status_code=404)
+        c = need_case(db, no)
         action = db.query(ActionItem).filter_by(case_id=c.id).first()
         if not action:
-            return JSONResponse({"error": "Investigate the case first."}, status_code=409)
+            raise AppError("Investigate the case first.", code="conflict", status=409)
         return approve_action(db, action, body.actor) | {"action": ser_action(action)}
     finally:
         db.close()
 
 
 @app.post("/api/cases/{no}/execute")
-def execute_case(no: int, body: ApproveBody):
+def execute_case(no: int, body: ApproveBody, request: Request):
+    require_key(request)
     db = SessionLocal()
     try:
-        c = db.query(Case).filter_by(case_no=no).first()
-        if not c:
-            return JSONResponse({"error": "Case not found"}, status_code=404)
+        c = need_case(db, no)
         action = db.query(ActionItem).filter_by(case_id=c.id).first()
         if not action:
-            return JSONResponse({"error": "Nothing to execute."}, status_code=409)
+            raise AppError("Nothing to execute.", code="conflict", status=409)
         out = execute_action(db, action, body.actor)
         if not out.get("ok"):
-            return JSONResponse(out, status_code=409)
+            raise AppError(out.get("error", "Execution failed."), code="conflict", status=409)
         out["action"] = ser_action(action)
         out["case"] = ser_case(c)
         return out
@@ -211,7 +251,7 @@ def execute_case(no: int, body: ApproveBody):
 def audit_list(limit: int = 100):
     db = SessionLocal()
     try:
-        rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(limit).all()
+        rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 500)).all()
         return [{"audit_id": a.audit_id, "actor": a.actor, "event": a.event,
                  "details": a.details, "created_at": _iso(a.created_at)} for a in rows]
     finally:
@@ -219,15 +259,84 @@ def audit_list(limit: int = 100):
 
 
 @app.post("/api/seed/reset")
-def seed_reset():
+def seed_reset(request: Request):
     """Demo-only: wipe all data and reseed the three cases."""
+    require_key(request)
     db = SessionLocal()
     try:
         for m in (AuditLog, ActionItem, Decision, Case, Refund, Settlement, Payment, Order, Event):
             db.query(m).delete()
+        try:
+            from .models import ChatMessage, ChatSession
+            db.query(ChatMessage).delete()
+            db.query(ChatSession).delete()
+        except Exception:
+            pass
         db.commit()
         opened = seed(db)
         return {"ok": True, "cases_opened": opened}
+    finally:
+        db.close()
+
+
+# ---- assistant chat (read-only, grounded) ----
+
+@app.post("/api/chat")
+def chat_turn(body: ChatBody, request: Request):
+    require_key(request)
+    db = SessionLocal()
+    try:
+        return assistant.chat_turn(db, body.session_id, body.message)
+    finally:
+        db.close()
+
+
+@app.get("/api/chat/{session_id}")
+def chat_history(session_id: str):
+    db = SessionLocal()
+    try:
+        s = db.query(assistant.ChatSession).filter_by(session_id=session_id).first()
+        if not s:
+            raise AppError("Session not found.", code="not_found", status=404)
+        return {"session_id": session_id,
+                "messages": [{"role": m.role, "content": m.content}
+                             for m in db.query(assistant.ChatMessage)
+                             .filter_by(session_id=session_id).order_by(assistant.ChatMessage.id).all()]}
+    finally:
+        db.close()
+
+
+# ---- guidebots ----
+
+@app.get("/api/guidebots")
+def guidebot_list():
+    return list_configs()
+
+
+@app.post("/api/guidebots/{bot_id}/chat")
+def guidebot_chat(bot_id: str, body: GuideChatBody, request: Request):
+    require_key(request)
+    get_config(bot_id)  # 404 early on unknown bot
+    db = SessionLocal()
+    try:
+        return guides.guide_turn(db, bot_id, body.session_id, body.message, body.actor)
+    finally:
+        db.close()
+
+
+@app.get("/api/guidebots/{bot_id}/chat/{session_id}")
+def guidebot_history(bot_id: str, session_id: str):
+    get_config(bot_id)
+    db = SessionLocal()
+    try:
+        s = db.query(assistant.ChatSession).filter_by(
+            session_id=session_id, kind=f"guidebot:{bot_id}").first()
+        if not s:
+            raise AppError("Session not found.", code="not_found", status=404)
+        return {"session_id": session_id, "step": (s.state or {}).get("step", 0),
+                "messages": [{"role": m.role, "content": m.content}
+                             for m in db.query(assistant.ChatMessage)
+                             .filter_by(session_id=session_id).order_by(assistant.ChatMessage.id).all()]}
     finally:
         db.close()
 
@@ -243,7 +352,8 @@ if os.path.isdir(DIST):
     @app.get("/{path:path}")
     def spa(path: str):
         if path.startswith(("api/", "webhooks/", "health")):
-            return JSONResponse({"error": "Not found"}, status_code=404)
+            return JSONResponse({"ok": False, "error": "Not found.", "code": "not_found"},
+                                status_code=404)
         fp = os.path.join(DIST, path)
         if path and os.path.isfile(fp):
             return FileResponse(fp)

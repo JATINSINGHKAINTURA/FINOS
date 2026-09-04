@@ -49,3 +49,26 @@ export const resetDemo = () => req<{ ok: boolean }>("POST", "/api/seed/reset");
 
 export const rs = (paise: number | unknown) =>
   typeof paise === "number" ? "₹" + (paise / 100).toLocaleString("en-IN") : String(paise ?? "—");
+
+export interface ChatMsg { role: string; content: string }
+export interface GuidebotInfo {
+  id: string; name: string; tagline: string; description: string; steps: string[];
+}
+export interface ToolResult { tool: string; ok?: boolean; blocked?: boolean; [k: string]: unknown }
+
+export const chatSend = (message: string, session_id?: string | null) =>
+  req<{ session_id: string; reply: string; suggestions: string[] }>(
+    "POST", "/api/chat", { message, ...(session_id ? { session_id } : {}) });
+export const chatHistory = (session_id: string) =>
+  req<{ session_id: string; messages: ChatMsg[] }>("GET", `/api/chat/${session_id}`);
+export const guidebots = () => req<GuidebotInfo[]>("GET", "/api/guidebots");
+export const guideSend = (bot: string, message: string, session_id?: string | null) =>
+  req<{ session_id: string; reply: string; suggestions: string[]; tool_results: ToolResult[];
+        step: number; done: boolean; bot: GuidebotInfo }>(
+    "POST", `/api/guidebots/${bot}/chat`, { message, ...(session_id ? { session_id } : {}) });
+export const guideHistory = (bot: string, session_id: string) =>
+  req<{ session_id: string; step: number; messages: ChatMsg[] }>(
+    "GET", `/api/guidebots/${bot}/chat/${session_id}`);
+export const auditList = (limit = 200) =>
+  req<{ audit_id: string; actor: string; event: string;
+        details: Record<string, unknown>; created_at: string }[]>("GET", `/api/audit?limit=${limit}`);
