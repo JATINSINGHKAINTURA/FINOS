@@ -31,6 +31,10 @@ def test_chat_and_validation():
         assert c.post("/api/chat", json={"message": ""}).status_code == 422
         assert c.post("/api/chat", json={"message": "x" * 2001}).status_code == 422
         assert c.get("/api/chat/nope").status_code == 404
+        # URL continuation form (what the web UI uses) must work, not 405
+        u = c.post("/api/chat", json={"message": "hello"}).json()
+        u2 = c.post(f"/api/chat/{u['session_id']}", json={"message": "list cases"}).json()
+        assert "1042" in u2["reply"] and u2["session_id"] == u["session_id"]
 
 
 def test_case_pilot_full_flow():
@@ -57,6 +61,12 @@ def test_case_pilot_full_flow():
         assert ex["done"] is True
         hist = c.get(f"/api/guidebots/case-pilot/chat/{sid}").json()
         assert len(hist["messages"]) >= 10
+        # URL continuation form (what the web UI uses) must work, not 405
+        w = c.post("/api/guidebots/webhook-helper/chat",
+                   json={"message": "explain"}).json()
+        w2 = c.post(f"/api/guidebots/webhook-helper/chat/{w['session_id']}",
+                    json={"message": "fire payment.captured"}).json()
+        assert any(t["tool"] == "test_webhook" for t in w2["tool_results"])
         # executed actions are immutable: re-approve refused, re-execute replays
         again_a = c.post("/api/cases/1042/approve", json={"actor": "judge"}).json()
         assert again_a["ok"] is False

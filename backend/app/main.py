@@ -291,6 +291,17 @@ def chat_turn(body: ChatBody, request: Request):
         db.close()
 
 
+@app.post("/api/chat/{session_id}")
+def chat_turn_url(session_id: str, body: ChatBody, request: Request):
+    """URL continuation form (used by the web UI); body form also accepted."""
+    require_key(request)
+    db = SessionLocal()
+    try:
+        return assistant.chat_turn(db, session_id, body.message)
+    finally:
+        db.close()
+
+
 @app.get("/api/chat/{session_id}")
 def chat_history(session_id: str):
     db = SessionLocal()
@@ -320,6 +331,18 @@ def guidebot_chat(bot_id: str, body: GuideChatBody, request: Request):
     db = SessionLocal()
     try:
         return guides.guide_turn(db, bot_id, body.session_id, body.message, body.actor)
+    finally:
+        db.close()
+
+
+@app.post("/api/guidebots/{bot_id}/chat/{session_id}")
+def guidebot_chat_turn(bot_id: str, session_id: str, body: GuideChatBody, request: Request):
+    """URL continuation form (used by the web UI); body form also accepted."""
+    require_key(request)
+    get_config(bot_id)  # 404 early on unknown bot
+    db = SessionLocal()
+    try:
+        return guides.guide_turn(db, bot_id, session_id, body.message, body.actor)
     finally:
         db.close()
 
