@@ -1,0 +1,10 @@
+{
+  "name": "finos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FINOS — Phase 0 scaffold",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}
