@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: finos
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false

@@ -2,3 +2,6 @@ node_modules/
 .env
 .dsh/
 dist/
+backend/.venv/
+*.db
+finos.db
