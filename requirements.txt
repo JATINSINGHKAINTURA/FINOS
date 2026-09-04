@@ -1,0 +1,6 @@
+# Vercel python-function dependencies (mirrors backend/requirements.txt minus dev/test).
+fastapi
+sqlalchemy
+pydantic
+httpx
+python-multipart
