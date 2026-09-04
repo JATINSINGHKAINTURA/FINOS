@@ -67,6 +67,11 @@ def test_case_pilot_full_flow():
         w2 = c.post(f"/api/guidebots/webhook-helper/chat/{w['session_id']}",
                     json={"message": "fire payment.captured"}).json()
         assert any(t["tool"] == "test_webhook" for t in w2["tool_results"])
+        # natural-language confirmation phrases count as yes
+        from app.guidebots.engine import user_says_yes
+        assert user_says_yes("yes I confirm EXECUTE")
+        assert user_says_yes("YES")
+        assert not user_says_yes("not yet") and not user_says_yes("yesterday")
         # executed actions are immutable: re-approve refused, re-execute replays
         again_a = c.post("/api/cases/1042/approve", json={"actor": "judge"}).json()
         assert again_a["ok"] is False

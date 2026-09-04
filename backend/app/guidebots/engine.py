@@ -9,6 +9,7 @@ confirmed the specific proposed action (state['proposed'] + yes-pattern).
 The model cannot bypass this — the engine checks, not the prompt.
 """
 import json
+import re
 
 import httpx
 
@@ -23,7 +24,12 @@ YES = {"yes", "y", "yeah", "yep", "confirm", "confirmed", "approve", "approved",
 
 
 def user_says_yes(text: str) -> bool:
-    return text.strip().lower() in YES
+    t = text.strip().lower()
+    if t in YES:
+        return True
+    # natural confirmations ("yes, execute it", "yes I confirm") also count;
+    # the real gate is user_confirmed's binding to the proposed action.
+    return any(re.search(rf"(?<!\w){re.escape(w)}(?!\w)", t) for w in YES)
 
 
 def user_confirmed(state: dict, tool_name: str, args: dict, user_text: str) -> bool:
