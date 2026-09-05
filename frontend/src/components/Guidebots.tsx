@@ -75,17 +75,18 @@ export default function Guidebots() {
   };
 
   if (error && !bots) return <div className="banner error">{error}</div>;
-  if (!bots) return <div className="loading"><span className="dots" />Loading guidebots…</div>;
+  if (!bots) return <div className="loading"><span className="typing" aria-hidden="true"><i /><i /><i /></span></div>;
 
   return (
-    <div className="fade-in">
+    <div>
       <h1>Guidebots</h1>
       <div className="muted" style={{ marginBottom: 14 }}>
         Task-oriented guides. They act only through governed tools — and never claim an action they didn't perform.
       </div>
       <div className="botgrid">
         {bots.map((b) => (
-          <button key={b.id} className={`card hover-lift ${active?.id === b.id ? "selected" : ""}`} onClick={() => pick(b)}>
+          <button key={b.id} className={`card ${active?.id === b.id ? "selected" : ""}`} onClick={() => pick(b)}
+            aria-pressed={active?.id === b.id}>
             <div className="card-title">{b.name}</div>
             <div className="card-sub">{b.tagline}</div>
             <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>{b.description}</div>
@@ -93,17 +94,17 @@ export default function Guidebots() {
         ))}
       </div>
       {active && (
-        <div className="panel guidechat slide-up">
-          <div className="steps">
+        <div className="panel guidechat">
+          <div className="steps" aria-label="Guide progress">
             {active.steps.map((s, i) => (
-              <div key={s} className={`step ${i <= step || done ? "done" : ""}`}>
+              <div key={s} className={`step ${i <= step || done ? "done" : ""}${i === step && !done ? " current" : ""}`}>
                 <span className="dot">{i <= step || done ? "✓" : i + 1}</span>{s}
               </div>
             ))}
           </div>
-          {error && <div className="banner error">{error}</div>}
-          <div className="chatlog">
-            {msgs.length === 0 && <div className="empty">Say hello to start “{active.name}”.</div>}
+          {error && <div className="banner error" role="alert">{error}</div>}
+          <div className="chatlog" role="log" aria-live="polite" aria-label={`${active.name} conversation`}>
+            {msgs.length === 0 && <div className="empty"><span className="big" aria-hidden="true">✦</span>Say hello to start “{active.name}”.</div>}
             {msgs.map((m, i) => {
               const ai = assistantIndex(msgs, i);
               const tc = m.role === "assistant" ? cards[ai] ?? [] : [];
@@ -118,7 +119,7 @@ export default function Guidebots() {
                 </div>
               );
             })}
-            {busy && <div className="msg assistant"><div className="bubble"><span className="dots" /></div></div>}
+            {busy && <div className="msg assistant"><div className="bubble"><span className="typing" aria-label={`${active.name} is working`}><i /><i /><i /></span></div></div>}
             <div ref={bottom} />
           </div>
           <div className="chips">

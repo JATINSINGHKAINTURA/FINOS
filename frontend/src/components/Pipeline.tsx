@@ -6,7 +6,7 @@ export function PipelineStrip() {
   useEffect(() => { health().then((h) => setDry(h.dry_run)).catch(() => {}); }, []);
   const steps = ["Facts", "Rules / State", "AI Reasoning", "Policy Gate", "Approved Action"];
   return (
-    <div className="pipeline fade-in" title="FINOS architecture: AI explains, never invents financial truth.">
+    <div className="pipeline" title="FINOS architecture: AI explains, never invents financial truth.">
       {steps.map((s, i) => (
         <span key={s} className="pipe-step">
           {i > 0 && <span className="pipe-arrow">→</span>}{s}

@@ -1,5 +1,4 @@
-import { Suspense, lazy, useState } from "react";
-import { PipelineStrip } from "./components/Pipeline";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { resetDemo } from "./api";
 
 const Dashboard = lazy(() => import("./components/Dashboard"));
@@ -20,6 +19,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("cases");
   const [caseNo, setCaseNo] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const go = (t: Tab) => { setTab(t); if (t !== "cases") setCaseNo(null); };
   const reset = async () => {
@@ -31,28 +38,26 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header className="top">
-        <div className="brand" onClick={() => go("cases")}>
-          <span className="logo">◈</span>
+      <a className="skip" href="#content">Skip to content</a>
+      <header className={`top${scrolled ? " scrolled" : ""}`}>
+        <button className="brand" onClick={() => go("cases")} aria-label="FINOS home">
+          <span className="logo" aria-hidden="true">◈</span>
           <span><b>FINOS</b> <span className="muted">· payment-state intelligence</span></span>
-        </div>
-        <nav className="tabs">
+        </button>
+        <nav className="tabs" role="tablist" aria-label="Main">
           {TABS.map((t) => (
-            <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => go(t.id)}>
+            <button key={t.id} role="tab" aria-selected={tab === t.id}
+              className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => go(t.id)}>
               {t.label}
             </button>
           ))}
         </nav>
         <button className="btn ghost" onClick={reset}>Reset demo</button>
       </header>
-      <main key={`${tab}-${caseNo ?? "dash"}-${refreshKey}`}>
-        <Suspense fallback={<div className="loading"><span className="dots" />Loading…</div>}>
+      <main id="content" key={`${tab}-${caseNo ?? "dash"}-${refreshKey}`}>
+        <Suspense fallback={<div className="loading"><span className="typing" aria-hidden="true"><i /><i /><i /></span></div>}>
           {tab === "cases" && caseNo === null && (
-            <>
-              <PipelineStrip />
-              <h1>Cases</h1>
-              <Dashboard onOpen={setCaseNo} refreshKey={refreshKey} />
-            </>
+            <Dashboard onOpen={setCaseNo} onAssistant={() => go("assistant")} refreshKey={refreshKey} />
           )}
           {tab === "cases" && caseNo !== null && (
             <CaseView no={caseNo} onBack={() => { setCaseNo(null); setRefreshKey((k) => k + 1); }} />

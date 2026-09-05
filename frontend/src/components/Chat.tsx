@@ -44,7 +44,7 @@ export default function Chat() {
   };
 
   return (
-    <div className="chatwrap fade-in">
+    <div className="chatwrap">
       <div className="chathead">
         <div>
           <h1>Assistant</h1>
@@ -52,17 +52,17 @@ export default function Chat() {
         </div>
         <button className="btn ghost" onClick={fresh}>New chat</button>
       </div>
-      {error && <div className="banner error">{error}</div>}
-      <div className="chatlog">
+      {error && <div className="banner error" role="alert">{error}</div>}
+      <div className="chatlog" role="log" aria-live="polite" aria-label="Conversation">
         {msgs.length === 0 && (
-          <div className="empty">Ask about cases, payment states, approvals, or webhooks.</div>
+          <div className="empty"><span className="big" aria-hidden="true">◈</span>Ask about cases, payment states, approvals, or webhooks.</div>
         )}
         {msgs.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
             <div className="bubble">{m.content}</div>
           </div>
         ))}
-        {busy && <div className="msg assistant"><div className="bubble"><span className="dots" /></div></div>}
+        {busy && <div className="msg assistant"><div className="bubble"><span className="typing" aria-label="Assistant is typing"><i /><i /><i /></span></div></div>}
         <div ref={bottom} />
       </div>
       <div className="chips">

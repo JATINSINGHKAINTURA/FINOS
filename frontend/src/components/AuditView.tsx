@@ -8,8 +8,14 @@ export default function AuditView() {
 
   useEffect(() => { auditList().then(setRows).catch((e) => setError(e.message)); }, []);
 
-  if (error) return <div className="banner error">{error}</div>;
-  if (!rows) return <div className="loading"><span className="dots" />Loading audit trail…</div>;
+  if (error) return <div className="banner error" role="alert">{error}</div>;
+  if (!rows) return (
+    <div className="panel" aria-hidden="true">
+      <div className="skel skel-line" style={{ width: "30%" }} />
+      <div className="skel skel-line" /><div className="skel skel-line" style={{ width: "85%" }} />
+      <div className="skel skel-line" style={{ width: "70%" }} /><div className="skel skel-line" style={{ width: "90%" }} />
+    </div>
+  );
 
   const f = q.trim().toLowerCase();
   const shown = f
@@ -17,7 +23,7 @@ export default function AuditView() {
     : rows;
 
   return (
-    <div className="fade-in">
+    <div>
       <h1>Audit trail</h1>
       <div className="muted" style={{ marginBottom: 12 }}>
         Every detection, decision, approval, and execution — newest first.

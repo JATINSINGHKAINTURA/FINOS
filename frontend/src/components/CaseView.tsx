@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { approve, execute, getCase, investigate, rs, type CaseDetail } from "../api";
+import { Reveal } from "../motion";
 
 const ACTION_LABEL: Record<string, string> = {
   no_action: "Resolve — no financial action",
@@ -17,13 +18,33 @@ function Steps({ d }: { d: CaseDetail }) {
     { label: "Approved", done: appr },
     { label: "Executed", done: exec },
   ];
+  const current = exec ? -1 : steps.findIndex((s) => !s.done);
   return (
-    <div className="steps">
+    <div className="steps" aria-label="Case progress">
       {steps.map((s, i) => (
-        <div key={s.label} className={`step ${s.done ? "done" : ""}`}>
+        <div key={s.label} className={`step ${s.done ? "done" : ""}${i === current ? " current" : ""}`}
+          aria-current={i === current ? "step" : undefined}>
           <span className="dot">{s.done ? "✓" : i + 1}</span>{s.label}
         </div>
       ))}
+    </div>
+  );
+}
+
+function CaseSkeleton() {
+  return (
+    <div aria-hidden="true">
+      <div className="skel skel-line" style={{ width: "12%" }} />
+      <div className="skel skel-line" style={{ width: "45%", height: 24 }} />
+      <div className="skel skel-line" style={{ width: "70%" }} />
+      <div className="cols" style={{ marginTop: 16 }}>
+        <div className="skel-card"><div className="skel skel-line" style={{ width: "40%" }} />
+          <div className="skel skel-line" /><div className="skel skel-line" style={{ width: "80%" }} />
+          <div className="skel skel-line" style={{ width: "60%" }} /></div>
+        <div className="skel-card"><div className="skel skel-line" style={{ width: "40%" }} />
+          <div className="skel skel-line" style={{ width: "90%" }} />
+          <div className="skel skel-line" style={{ width: "50%" }} /></div>
+      </div>
     </div>
   );
 }
@@ -49,15 +70,21 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
     setBusy("");
   };
 
-  if (error && !d) return <div className="banner error">{error}</div>;
-  if (!d) return <div className="loading"><span className="dots" />Loading case…</div>;
+  if (error && !d) return <div className="banner error" role="alert">{error}</div>;
+  if (!d) return <CaseSkeleton />;
 
   const latest = d.decisions[d.decisions.length - 1];
   const st = d.reconstruction?.state;
 
+  const busyBtn = (what: "investigate" | "approve" | "execute", label: string, doing: string) => (
+    <button className="btn primary" disabled={busy !== ""} onClick={() => run(what)} aria-busy={busy === what}>
+      {busy === what && <span className="spin" aria-hidden="true" />}{busy === what ? doing : label}
+    </button>
+  );
+
   return (
-    <div className="case fade-in" key={no}>
-      <button className="back" onClick={onBack}>← All cases</button>
+    <div className="case" key={no}>
+      <button className="back" onClick={onBack}><span aria-hidden="true">←</span> All cases</button>
       <div className="case-head">
         <div>
           <div className="case-no">Payment Case #{d.case.case_no}</div>
@@ -69,11 +96,11 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
 
       <Steps d={d} />
 
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner error" role="alert">{error}</div>}
 
       <div className="cols">
         <div className="col">
-          <section className="panel slide-up">
+          <Reveal as="section" className="panel">
             <h3>Payment timeline</h3>
             {d.reconstruction ? (
               <>
@@ -102,9 +129,9 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
                 </tbody>
               </table>
             )}
-          </section>
+          </Reveal>
 
-          <section className="panel slide-up">
+          <Reveal as="section" className="panel" delay={90}>
             <h3>Audit trail</h3>
             {d.audit.length === 0 && <div className="muted">No audit entries yet.</div>}
             <ol className="audit">
@@ -113,17 +140,13 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
                   <span className="muted"> · {a.actor} · {a.created_at ? new Date(a.created_at).toLocaleString() : ""}</span></li>
               ))}
             </ol>
-          </section>
+          </Reveal>
         </div>
 
         <div className="col">
-          <section className="panel slide-up">
+          <Reveal as="section" className="panel" delay={60}>
             <h3>AI diagnosis</h3>
-            {!latest && (
-              <button className="btn primary" disabled={busy !== ""} onClick={() => run("investigate")}>
-                {busy === "investigate" ? "Investigating…" : "Run AI investigation"}
-              </button>
-            )}
+            {!latest && busyBtn("investigate", "Run AI investigation", "Investigating…")}
             {latest && (
               <>
                 <p className="diagnosis">“{latest.diagnosis}”</p>
@@ -136,11 +159,11 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
                   <span className="muted">model: {latest.model}</span>
                 </div>
               </>
-            )}
-          </section>
+              )}
+          </Reveal>
 
           {d.action && (
-            <section className="panel slide-up">
+            <Reveal as="section" className="panel" delay={120}>
               <h3>Recommended action</h3>
               <div className="action-kind">{ACTION_LABEL[d.action.kind] ?? d.action.kind}</div>
               <div className="muted mono">Action ID: {d.action.action_id} · status: {d.action.status}</div>
@@ -150,23 +173,15 @@ export default function CaseView({ no, onBack }: { no: number; onBack: () => voi
                 </ul>
               )}
               <div className="row">
-                {d.action.status === "proposed" && (
-                  <button className="btn primary" disabled={busy !== ""} onClick={() => run("approve")}>
-                    {busy === "approve" ? "Approving…" : "Approve"}
-                  </button>
-                )}
-                {d.action.status === "approved" && (
-                  <button className="btn primary" disabled={busy !== ""} onClick={() => run("execute")}>
-                    {busy === "execute" ? "Executing…" : "Execute"}
-                  </button>
-                )}
+                {d.action.status === "proposed" && busyBtn("approve", "Approve", "Approving…")}
+                {d.action.status === "approved" && busyBtn("execute", "Execute", "Executing…")}
                 {d.action.status === "blocked" && <span className="pill blocked">Blocked by policy</span>}
                 {d.action.status === "executed" && <span className="pill executed">✓ Executed</span>}
               </div>
               {d.action.status === "executed" && d.action.result && (
                 <div className="result">{String((d.action.result as { outcome?: string }).outcome ?? "")}</div>
               )}
-            </section>
+            </Reveal>
           )}
         </div>
       </div>
